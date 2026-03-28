@@ -66,7 +66,7 @@ class KVCache:
         return torch.narrow(self.data, 2, 0, self.current_length)
 
 
-def initialize_past_key_values(model):
+def initialize_past_key_values(model,max_length=2200,batch_size=1):
     """
     Initialize past key and value states for a given transformer model.
 
@@ -85,7 +85,7 @@ def initialize_past_key_values(model):
     # Extracting configuration from the model
     config = model.config
     # Initializing the batch size to 1, this can be modified if different batch sizes are required
-    batch_size = 1
+    # batch_size = 1
     # Initializing a tensor to store past keys and values for all layers
 
     devices=[]
@@ -98,13 +98,14 @@ def initialize_past_key_values(model):
     past_key_values_data_list=[]
     startnum=0
     startdevice=devices[0]
+    # 每个device的cuda会分到相邻的几个layer，这几个layer分到一个past_key_values_data
     for id,i in enumerate(devices):
         if startdevice!=i:
             past_key_values_data = torch.zeros(
                 startnum * 2,
                 batch_size,
                 config.num_key_value_heads,
-                config.max_position_embeddings,
+                max_length,
                 config.hidden_size // config.num_attention_heads,
                 device=startdevice,
                 dtype=model.dtype,
@@ -117,7 +118,7 @@ def initialize_past_key_values(model):
         startnum * 2,
         batch_size,
         config.num_key_value_heads,
-        config.max_position_embeddings,
+        max_length,
         config.hidden_size // config.num_attention_heads,
         device=startdevice,
         dtype=model.dtype,
@@ -155,3 +156,42 @@ def initialize_past_key_values(model):
             )
         bias+=1
     return past_key_values, past_key_values_data_list, current_length_data
+
+def interleave_kv(input, output, incld, outcld):
+    """
+    copy kvcache to decoding in parallel
+    Args:
+        input: past_key_values_data whose batch_size is 1
+        output: past_key_values_data whose batch_size is not 1
+        incld: input's current_length_data
+        outcld: output's current_length_data
+    """
+    # past_key_values_data[i].shape=[num*2, bsz, num_key_value_heads, max_length, hidden_size // num_attention_heads], nums represent the num of layers stored in the same device
+    bsz = output[0].shape[1]
+    assert len(input) == len(output)
+    with torch.no_grad():
+        for i in range(len(input)):
+            assert input[i].shape[0] == output[i].shape[0]
+            tgt = input[i][..., :incld[0], :].expand(-1, bsz, -1, -1, -1)  
+            # tgt = input[i][..., :incld[0], :].repeat_interleave(bsz, dim=1)
+            dst = torch.narrow(output[i], -2, 0, incld[0]) #output[i][..., :incld, :]
+            dst.copy_(tgt, non_blocking=True)
+        outcld.copy_(incld, non_blocking=True)
+
+def squeeze_kv(input, output, incld, outcld):
+    """
+    restore kvcache to update
+    Args:
+        input: past_key_values_data whose batch_size is not 1
+        output: past_key_values_data whose batch_size is 1
+        incld: input's current_length_data
+        outcld: output's current_length_data
+    """
+    assert len(input) == len(output)
+    with torch.no_grad():
+        for i in range(len(input)):
+            assert input[i].shape[0] == output[i].shape[0]
+            tgt = input[i][:, -1:, :, :incld[0], :] # select the last batch
+            dst = torch.narrow(output[i], -2, 0, incld[0]) #output[i][..., :incld, :]
+            dst.copy_(tgt, non_blocking=True)
+        outcld.copy_(incld, non_blocking=True)

@@ -12,10 +12,11 @@ from transformers import PreTrainedModel, PretrainedConfig,AutoConfig
 
 from .modeling_llama_kv import LlamaForCausalLM as KVLlamaForCausalLM
 from .utils import *
-from .kv_cache import initialize_past_key_values
+from .kv_cache import initialize_past_key_values, interleave_kv, squeeze_kv
 
 from .cnets import Model
 from .configs import EConfig
+from .eye import Hawkeye, HawkeyeHidden
 
 
 
@@ -32,7 +33,9 @@ class EaModel(nn.Module):
             depth,
             top_k,
             threshold,
-            ea_layer_state_dict
+            ea_layer_state_dict,
+            hawkeye_state_dict=None,
+            use_hidden=False
     ):
 
         super().__init__()
@@ -51,6 +54,12 @@ class EaModel(nn.Module):
             bias=True
         self.ea_layer = Model(config,bias=bias,total_tokens=total_token,depth=depth,top_k=top_k,threshold=threshold)
 
+        if use_hidden:
+            self.eye = HawkeyeHidden(hidden_dim=self.hidden_size)
+        else:
+            self.eye = Hawkeye()
+
+
         low_memory=False
 
         device = base_model.model.layers[-1].self_attn.q_proj.weight.device
@@ -67,6 +76,12 @@ class EaModel(nn.Module):
         self.ea_layer.to(self.base_model.dtype).to(device)
         self.ea_layer.init_tree()
 
+        if hawkeye_state_dict:
+            load_eye = self.eye.load_state_dict(hawkeye_state_dict, strict=False)
+            self.eye.to(self.base_model.dtype).to(device)
+            self.eye.eval()
+
+
     def get_tokenizer(self):
         """Get the tokenizer of the base model.
 
@@ -81,6 +96,8 @@ class EaModel(nn.Module):
             Type="LLaMA",
             base_model_path=None,
             ea_model_path=None,
+            eye_model_path=None,
+            use_hidden=False,
             total_token=59,
             depth=5,
             top_k=10,
@@ -118,6 +135,7 @@ class EaModel(nn.Module):
             if not os.path.exists(load_model_path):
                 load_model_path = hf_hub_download(ea_model_path, "model.safetensors")
             ea_layer_state_dict = load_file(load_model_path)
+        hawkeye_state_dict = torch.load(eye_model_path, map_location=base_model.device) if eye_model_path is not None else None
         model = cls(
             base_model,
             base_model_path,
@@ -126,7 +144,9 @@ class EaModel(nn.Module):
             depth,
             top_k,
             threshold,
-            ea_layer_state_dict
+            ea_layer_state_dict,
+            hawkeye_state_dict,
+            use_hidden
         )
 
 
@@ -566,3 +586,363 @@ class EaModel(nn.Module):
 
 
 
+
+
+def eagenerate_log(
+            self,
+            input_ids,
+            eye=None,
+            temperature=0.0,
+            top_p=0.0,
+            top_k=0.0,
+            max_new_tokens=512,
+            max_length=2048,
+            log=False,
+            is_llama3=False,
+    ):
+        if is_llama3:
+            stop_token_id = self.tokenizer.convert_tokens_to_ids("<|eot_id|>")
+
+
+        if temperature > 1e-5:
+            logits_processor = prepare_logits_processor(temperature=temperature, top_p=top_p, top_k=top_k)
+        else:
+            logits_processor = None
+        # assert input_ids.shape[0] == 1, "Only support batch size 1 for now!!"
+        # Avoid modifying the input_ids in-place
+
+        padding = (torch.zeros(1, 1, dtype=torch.long) - 1).to(input_ids.device)
+        input_ids = input_ids.clone()
+        self.ea_layer.reset_kv()
+
+        # Initialize the past key and value states
+        if hasattr(self, "past_key_values"):
+            past_key_values = self.past_key_values
+            past_key_values_data = self.past_key_values_data
+            current_length_data = self.current_length_data
+            # Reset the past key and value states
+            current_length_data.zero_()
+        else:
+            (
+                past_key_values,
+                past_key_values_data,
+                current_length_data,
+            ) = initialize_past_key_values(self.base_model,max_length=max_length)
+            self.past_key_values = past_key_values
+            self.past_key_values_data = past_key_values_data
+            self.current_length_data = current_length_data
+
+        input_len = input_ids.shape[1]
+        reset_tree_mode(self)
+        time_dicts = []
+        draft_tokens, retrieve_indices, tree_mask, tree_position_ids, logits, time_dict = initialize_tree_log(
+            input_ids, self, past_key_values, logits_processor, eye
+        )
+        time_dicts.append(time_dict)
+        new_token = 0
+        max_length = max_length - self.ea_layer.total_tokens - 10
+        for idx in range(max_length):
+            # 记录eagenerate时间（包括大模型验证开销、多次eaforward和eye前向）
+            torch.cuda.synchronize()
+            eagenerate_stime = time.time()
+            # with Timer("all"):
+            self.base_model.model.tree_mask = tree_mask
+
+            draft_tokens = draft_tokens.to(input_ids.device)
+            # with Timer("tree_decoding"):
+            logits, hidden_state_new, outputs = tree_decoding(
+                self,
+                draft_tokens,
+                past_key_values,
+                tree_position_ids,
+                input_ids,
+                retrieve_indices,
+            )
+            # retrieve_indices=tree_buffers["retrieve_indices"]
+            # logits = logits[0, retrieve_indices]
+            draft_tokens = torch.cat((draft_tokens, padding), dim=1)
+            candidates = draft_tokens[0, retrieve_indices]
+            best_candidate, accept_length, sample_p = evaluate_posterior(
+                logits, candidates, logits_processor
+            )
+            # print(accept_length)
+            # with Timer("update_inference_inputs"):
+            # input_ids, draft_tokens, retrieve_indices, tree_mask, tree_position_ids, new_token, hidden_state, sample_token = update_inference_inputs(
+            #     input_ids,
+            #     candidates,
+            #     best_candidate,
+            #     accept_length,
+            #     retrieve_indices,
+            #     logits_processor,
+            #     new_token,
+            #     past_key_values_data,
+            #     current_length_data,
+            #     self,
+            #     hidden_state_new,
+            #     sample_p
+            # )
+            input_ids, draft_tokens, retrieve_indices, tree_mask, tree_position_ids, new_token, time_dict = update_inference_inputs_log(
+                input_ids,
+                candidates,
+                best_candidate,
+                accept_length,
+                retrieve_indices,
+                logits_processor,
+                new_token,
+                past_key_values_data,
+                current_length_data,
+                self,
+                hidden_state_new,
+                sample_p,
+                eye
+            )
+            torch.cuda.synchronize()
+            eagenerate_etime = time.time()
+            # 添加eagenerate总时间到time_dict
+            time_dict["eagenerate_time"] = eagenerate_etime - eagenerate_stime
+            time_dicts.append(time_dict)
+
+            if is_llama3:
+                if stop_token_id in input_ids[0, input_len:].tolist():
+                    break
+
+            if self.tokenizer.eos_token_id in input_ids[0, input_len:].tolist():
+                break
+            if new_token > max_new_tokens:
+                break
+            if input_ids.shape[1] > max_length:
+                break
+        if not log:
+            return input_ids
+        else:
+            return input_ids, new_token, idx, time_dicts
+
+
+def eagenerate_rb(
+            self,
+            input_ids,
+            temperature=0.0,
+            top_p=0.0,
+            top_k=0.0,
+            max_new_tokens=512,
+            max_length=2048,
+            log=False,
+            is_llama3=False,
+    ):
+        if is_llama3:
+            stop_token_id = self.tokenizer.convert_tokens_to_ids("<|eot_id|>")
+
+
+        if temperature > 1e-5:
+            logits_processor = prepare_logits_processor(temperature=temperature, top_p=top_p, top_k=top_k)
+        else:
+            logits_processor = None
+        # assert input_ids.shape[0] == 1, "Only support batch size 1 for now!!"
+        # Avoid modifying the input_ids in-place
+
+        padding = (torch.zeros(1, 1, dtype=torch.long) - 1).to(input_ids.device)
+        input_ids = input_ids.clone()
+        self.ea_layer.reset_kv()
+
+        # Initialize the past key and value states
+        if hasattr(self, "past_key_values"):
+            past_key_values = self.past_key_values
+            past_key_values_data = self.past_key_values_data
+            current_length_data = self.current_length_data
+            # Reset the past key and value states
+            current_length_data.zero_()
+
+            past_key_values_rb = self.past_key_values_rb
+            past_key_values_data_rb = self.past_key_values_data_rb
+            current_length_data_rb = self.current_length_data_rb
+            current_length_data_rb.zero_()
+        else:
+            (
+                past_key_values,
+                past_key_values_data,
+                current_length_data,
+            ) = initialize_past_key_values(self.base_model,max_length=max_length)
+            self.past_key_values = past_key_values
+            self.past_key_values_data = past_key_values_data
+            self.current_length_data = current_length_data
+
+            (
+                past_key_values_rb,
+                past_key_values_data_rb,
+                current_length_data_rb,
+            ) = initialize_past_key_values(self.base_model,max_length=max_length,batch_size=self.ea_layer.depth+1)
+            self.past_key_values_rb = past_key_values_rb
+            self.past_key_values_data_rb = past_key_values_data_rb
+            self.current_length_data_rb = current_length_data_rb
+
+        input_len = input_ids.shape[1]
+        reset_tree_mode(self)
+        draft_tokens, retrieve_indices, tree_mask, tree_position_ids, logits, scores_dict = initialize_tree_rb(
+            input_ids, self, past_key_values, logits_processor
+        )
+        new_token = 0
+        scores_dict_list = []
+        max_length = max_length - self.ea_layer.total_tokens - 10
+        for idx in range(max_length):
+            # with Timer("all"):
+            self.base_model.model.tree_mask = tree_mask
+
+            draft_tokens = draft_tokens.to(input_ids.device)
+
+            interleave_kv(past_key_values_data, past_key_values_data_rb, current_length_data, current_length_data_rb)
+            # with Timer("tree_decoding"):
+            logits, hidden_state_new, outputs = tree_decoding_rb(
+                self,
+                draft_tokens,
+                past_key_values_rb,
+                tree_position_ids,
+                input_ids,
+                retrieve_indices,
+            )
+            squeeze_kv(past_key_values_data_rb, past_key_values_data, current_length_data_rb, current_length_data)
+
+            draft_tokens = torch.cat((draft_tokens, padding.repeat_interleave(draft_tokens.shape[0], dim=0)), dim=1) # draft_tokens = torch.cat((draft_tokens, padding), dim=1)
+            candidates = [draft_tokens[i, retrieve_indices[i]] for i in range(draft_tokens.shape[0])] # candidates = draft_tokens[0, retrieve_indices]
+
+            best_candidate, accept_length, sample_p = evaluate_posterior_rb(
+                logits, candidates, logits_processor, scores_dict
+            )
+            retrieve_indices = retrieve_indices[-1] #select the last batch
+            candidates = draft_tokens[-1, retrieve_indices] #select the last batch
+            scores_dict_list.append(scores_dict)
+
+            # with Timer("update_inference_inputs"):
+            input_ids, draft_tokens, retrieve_indices, tree_mask, tree_position_ids, new_token, scores_dict = update_inference_inputs_rb(
+                input_ids,
+                candidates,
+                best_candidate,
+                accept_length,
+                retrieve_indices,
+                logits_processor,
+                new_token,
+                past_key_values_data,
+                current_length_data,
+                self,
+                hidden_state_new,
+                sample_p
+            )
+
+            if is_llama3:
+                if stop_token_id in input_ids[0, input_len:].tolist():
+                    break
+
+            if self.tokenizer.eos_token_id in input_ids[0, input_len:].tolist():
+                break
+            if new_token > max_new_tokens:
+                break
+            if input_ids.shape[1] > max_length:
+                break
+        if not log:
+            return input_ids, scores_dict_list
+        else:
+            return input_ids, new_token, idx, scores_dict_list
+
+
+def eagenerate_with_eye(
+            self,
+            input_ids,
+            temperature=0.0,
+            top_p=0.0,
+            top_k=0.0,
+            max_new_tokens=512,
+            max_length=2048,
+            log=False,
+            is_llama3=False,
+
+    ):
+        if is_llama3:
+            stop_token_id = self.tokenizer.convert_tokens_to_ids("<|eot_id|>")
+
+
+        if temperature > 1e-5:
+            logits_processor = prepare_logits_processor(temperature=temperature, top_p=top_p, top_k=top_k)
+        else:
+            logits_processor = None
+        # assert input_ids.shape[0] == 1, "Only support batch size 1 for now!!"
+        # Avoid modifying the input_ids in-place
+
+        padding = (torch.zeros(1, 1, dtype=torch.long) - 1).to(input_ids.device)
+        input_ids = input_ids.clone()
+        self.ea_layer.reset_kv()
+
+        # Initialize the past key and value states
+        if hasattr(self, "past_key_values"):
+            past_key_values = self.past_key_values
+            past_key_values_data = self.past_key_values_data
+            current_length_data = self.current_length_data
+            # Reset the past key and value states
+            current_length_data.zero_()
+        else:
+            (
+                past_key_values,
+                past_key_values_data,
+                current_length_data,
+            ) = initialize_past_key_values(self.base_model,max_length=max_length)
+            self.past_key_values = past_key_values
+            self.past_key_values_data = past_key_values_data
+            self.current_length_data = current_length_data
+
+        input_len = input_ids.shape[1]
+        reset_tree_mode(self)
+        action_length = []
+        draft_tokens, retrieve_indices, tree_mask, tree_position_ids, logits, i = initialize_tree_with_eye(
+            input_ids, self, past_key_values, logits_processor
+        )
+        new_token = 0
+        max_length = max_length - self.ea_layer.total_tokens - 10
+        for idx in range(max_length):
+            # with Timer("all"):
+            self.base_model.model.tree_mask = tree_mask
+
+            draft_tokens = draft_tokens.to(input_ids.device)
+            # with Timer("tree_decoding"):
+            logits, hidden_state_new, outputs = tree_decoding(
+                self,
+                draft_tokens,
+                past_key_values,
+                tree_position_ids,
+                input_ids,
+                retrieve_indices,
+            )
+
+            draft_tokens = torch.cat((draft_tokens, padding), dim=1)
+            candidates = draft_tokens[0, retrieve_indices]
+            best_candidate, accept_length, sample_p = evaluate_posterior(
+                logits, candidates, logits_processor
+            )
+
+            action_length.append(i)
+            input_ids, draft_tokens, retrieve_indices, tree_mask, tree_position_ids, new_token, i = update_inference_inputs_with_eye(
+                input_ids,
+                candidates,
+                best_candidate,
+                accept_length,
+                retrieve_indices,
+                logits_processor,
+                new_token,
+                past_key_values_data,
+                current_length_data,
+                self,
+                hidden_state_new,
+                sample_p
+            )
+
+            if is_llama3:
+                if stop_token_id in input_ids[0, input_len:].tolist():
+                    break
+
+            if self.tokenizer.eos_token_id in input_ids[0, input_len:].tolist():
+                break
+            if new_token > max_new_tokens:
+                break
+            if input_ids.shape[1] > max_length:
+                break
+        if not log:
+            return input_ids
+        else:
+            return input_ids, new_token, idx, action_length
