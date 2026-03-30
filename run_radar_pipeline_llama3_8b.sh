@@ -12,7 +12,8 @@ python -m HASS.ge_data.ge_data_llama3_rb \
     --ea-model-path $EA_MODEL_PATH \
     --base-model-path $BASE_MODEL_PATH \
     --bench-name $BENCH_NAME \
-    --num-gpus-total 1 \
+    --num-gpus-total 3 \
+    --num-gpus-pre-model 1
     --depth 7 \
     --top-k 10 \
     --temperature $TEMP \

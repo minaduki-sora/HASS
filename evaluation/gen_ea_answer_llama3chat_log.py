@@ -9,7 +9,7 @@ import os
 script_dir = os.path.dirname(__file__)
 parent_dir = os.path.dirname(script_dir)
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "2,3"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 from accelerate.utils import set_seed
 set_seed(0)
 
@@ -25,10 +25,10 @@ try:
     from ..model.utils import *
     from ..model.eye import Hawkeye,HawkeyeHidden
 except:
-    from HASS.model.ea_model import EaModel
-    from HASS.model.kv_cache import initialize_past_key_values
-    from HASS.model.utils import *
-    from HASS.model.eye import Hawkeye,HawkeyeHidden
+    from model.ea_model import EaModel
+    from model.kv_cache import initialize_past_key_values
+    from model.utils import *
+    from model.eye import Hawkeye,HawkeyeHidden
 
 
 
@@ -116,7 +116,7 @@ def get_model_answers(
 
     tokenizer = model.get_tokenizer()
 
-    eye = HawkeyeHidden()#Hawkeye()
+    eye = Hawkeye()
     eye.to(model.base_model.dtype).to(model.base_model.model.layers[-1].self_attn.q_proj.weight.device)
     eye.eval()
 

@@ -1,0 +1,136 @@
+{
+  "citation": "",
+  "description": "",
+  "features": {
+    "eagle_1_forward": {
+      "feature": {
+        "dtype": "float16",
+        "_type": "Value"
+      },
+      "_type": "List"
+    },
+    "eagle_2_forward": {
+      "feature": {
+        "dtype": "float16",
+        "_type": "Value"
+      },
+      "_type": "List"
+    },
+    "eagle_3_forward": {
+      "feature": {
+        "dtype": "float16",
+        "_type": "Value"
+      },
+      "_type": "List"
+    },
+    "eagle_4_forward": {
+      "feature": {
+        "dtype": "float16",
+        "_type": "Value"
+      },
+      "_type": "List"
+    },
+    "eagle_5_forward": {
+      "feature": {
+        "dtype": "float16",
+        "_type": "Value"
+      },
+      "_type": "List"
+    },
+    "eagle_6_forward": {
+      "feature": {
+        "dtype": "float16",
+        "_type": "Value"
+      },
+      "_type": "List"
+    },
+    "eagle_7_forward": {
+      "feature": {
+        "dtype": "float16",
+        "_type": "Value"
+      },
+      "_type": "List"
+    },
+    "eagle_8_forward": {
+      "feature": {
+        "dtype": "float16",
+        "_type": "Value"
+      },
+      "_type": "List"
+    },
+    "action_0": {
+      "stop": {
+        "feature": {
+          "dtype": "float64",
+          "_type": "Value"
+        },
+        "_type": "List"
+      }
+    },
+    "action_1": {
+      "stop": {
+        "feature": {
+          "dtype": "float64",
+          "_type": "Value"
+        },
+        "_type": "List"
+      }
+    },
+    "action_2": {
+      "stop": {
+        "feature": {
+          "dtype": "float64",
+          "_type": "Value"
+        },
+        "_type": "List"
+      }
+    },
+    "action_3": {
+      "stop": {
+        "feature": {
+          "dtype": "float64",
+          "_type": "Value"
+        },
+        "_type": "List"
+      }
+    },
+    "action_4": {
+      "stop": {
+        "feature": {
+          "dtype": "float64",
+          "_type": "Value"
+        },
+        "_type": "List"
+      }
+    },
+    "action_5": {
+      "stop": {
+        "feature": {
+          "dtype": "float64",
+          "_type": "Value"
+        },
+        "_type": "List"
+      }
+    },
+    "action_6": {
+      "stop": {
+        "feature": {
+          "dtype": "float64",
+          "_type": "Value"
+        },
+        "_type": "List"
+      }
+    },
+    "action_7": {
+      "stop": {
+        "feature": {
+          "dtype": "float64",
+          "_type": "Value"
+        },
+        "_type": "List"
+      }
+    }
+  },
+  "homepage": "",
+  "license": ""
+}

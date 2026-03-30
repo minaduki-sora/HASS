@@ -1,0 +1,30 @@
+{
+  "_data_files": [
+    {
+      "filename": "data-00000-of-00001.arrow"
+    }
+  ],
+  "_fingerprint": "ab3a103a214e83aa",
+  "_format_columns": [
+    "action_0",
+    "action_1",
+    "action_2",
+    "action_3",
+    "action_4",
+    "action_5",
+    "action_6",
+    "action_7",
+    "eagle_1_forward",
+    "eagle_2_forward",
+    "eagle_3_forward",
+    "eagle_4_forward",
+    "eagle_5_forward",
+    "eagle_6_forward",
+    "eagle_7_forward",
+    "eagle_8_forward"
+  ],
+  "_format_kwargs": {},
+  "_format_type": null,
+  "_output_all_columns": false,
+  "_split": null
+}

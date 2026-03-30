@@ -9,6 +9,7 @@ import os
 script_dir = os.path.dirname(__file__)
 parent_dir = os.path.dirname(script_dir)
 # 注意：不要在这里硬编码 CUDA_VISIBLE_DEVICES，让 Ray 来管理 GPU 分配
+os.environ["CUDA_VISIBLE_DEVICES"] = '0,1,2'
 from accelerate.utils import set_seed
 set_seed(0)
 from datasets import Dataset, DatasetDict
@@ -26,9 +27,9 @@ try:
     from ..model.kv_cache import initialize_past_key_values
     from ..model.utils import *
 except:
-    from HASS.model.ea_model import EaModel
-    from HASS.model.kv_cache import initialize_past_key_values
-    from HASS.model.utils import *
+    from model.ea_model import EaModel
+    from model.kv_cache import initialize_past_key_values
+    from model.utils import *
 
 
 
@@ -66,9 +67,9 @@ def run_eval(
     else:
         get_answers_func = get_model_answers
 
-    chunk_size = len(questions) // (num_gpus_total // num_gpus_per_model)  # // 2
+    chunk_size = len(questions) // (num_gpus_total // num_gpus_per_model)
     ans_handles = []
-    for i in range(0, len(questions), chunk_size):
+    for chunk_idx, i in enumerate(range(0, len(questions), chunk_size)):
         ans_handles.append(
             get_answers_func(
                 base_model_path,
@@ -81,12 +82,33 @@ def run_eval(
                 num_gpus_per_model,
                 max_gpu_memory,
                 temperature,
-                args
+                args,
+                chunk_idx  # 新增参数，标识 worker
             )
         )
 
     if use_ray:
         ray.get(ans_handles)
+    
+    if hasattr(args, "save_dataset") and args.save_dataset:
+        from datasets import concatenate_datasets
+        num_chunks = num_gpus_total // num_gpus_per_model
+        all_datasets = []
+        for chunk_idx in range(num_chunks):
+            chunk_path = args.save_dataset + f"_chunk_{chunk_idx}"
+            if os.path.exists(chunk_path):
+                ds = Dataset.load_from_disk(chunk_path)
+                all_datasets.append(ds)
+        if all_datasets:
+            merged = concatenate_datasets(all_datasets)
+            merged = merged.train_test_split(test_size=0.2)
+            merged.save_to_disk(args.save_dataset)
+            # 清理临时 chunk 文件
+            import shutil
+            for chunk_idx in range(num_chunks):
+                chunk_path = args.save_dataset + f"_chunk_{chunk_idx}"
+                if os.path.exists(chunk_path):
+                    shutil.rmtree(chunk_path)
 
 
 @torch.inference_mode()
@@ -101,7 +123,8 @@ def get_model_answers(
         num_gpus_per_model,
         max_gpu_memory,
         temperature,
-        args
+        args,
+        chunk_idx
 ):
     # temperature = 0.0
 
@@ -128,8 +151,7 @@ def get_model_answers(
     question = questions[0]
 
     data = []
-    # questions=questions[0:2]
-    save_interval = getattr(args, "save_interval", 50)  # 每50个问题保存一次
+
     for q_idx, question in enumerate(tqdm(questions)):
 
         choices = []
@@ -214,14 +236,6 @@ def get_model_answers(
             torch.cuda.empty_cache()
             choices.append({"index": i, "turns": turns, "idxs": idxs, "new_tokens": new_tokens})
 
-        # 定期保存数据集，防止数据丢失
-        if hasattr(args, "save_dataset") and (q_idx + 1) % save_interval == 0:
-            print(f"\nSaving intermediate dataset after {q_idx + 1} questions...")
-            intermediate_dataset = Dataset.from_list(data)
-            intermediate_save_path = args.save_dataset + f"_checkpoint_{q_idx + 1}"
-            os.makedirs(os.path.dirname(intermediate_save_path), exist_ok=True)
-            intermediate_dataset.save_to_disk(intermediate_save_path)
-            print(f"Intermediate dataset saved to {intermediate_save_path}")
 
         # Dump answers
         os.makedirs(os.path.dirname(answer_file), exist_ok=True)
@@ -236,11 +250,11 @@ def get_model_answers(
             fout.write(json.dumps(ans_json) + "\n")
 
     # save dataset
-    if hasattr(args, "save_dataset"):
+    if hasattr(args, "save_dataset") and args.save_dataset:
         dataset = Dataset.from_list(data)
-        os.makedirs(os.path.dirname(args.save_dataset), exist_ok=True)
-        dataset = dataset.train_test_split(test_size=0.2)
-        dataset.save_to_disk(args.save_dataset)
+        chunk_path = args.save_dataset + f"_chunk_{chunk_idx}"
+        os.makedirs(os.path.dirname(chunk_path), exist_ok=True)
+        dataset.save_to_disk(chunk_path)  # 保存到独立路径，不做 split
 
 
 def reorg_answer_file(answer_file):

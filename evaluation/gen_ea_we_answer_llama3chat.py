@@ -23,9 +23,9 @@ try:
     from ..model.kv_cache import initialize_past_key_values
     from ..model.utils import *
 except:
-    from HASS.model.ea_model import EaModel
-    from HASS.model.kv_cache import initialize_past_key_values
-    from HASS.model.utils import *
+    from model.ea_model import EaModel
+    from model.kv_cache import initialize_past_key_values
+    from model.utils import *
 
 
 
@@ -415,6 +415,11 @@ if __name__ == "__main__":
         "--tree-choices",
         type=str,
         default="mc_sim_7b_63",
+    )
+
+    parser.add_argument(
+        "--answer-file",
+        type=str
     )
 
     args = parser.parse_args()

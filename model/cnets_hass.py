@@ -1045,7 +1045,7 @@ class Model(nn.Module):
 
     @torch.no_grad()
     def topK_genrate_rb(self, hidden_states, input_ids, head, logits_processor):
-        def make_rb(scores_list, ss_token, hidden_list, total_tokens, sample_token, parents_list, top_k, logits_processor):
+        def make_rb(scores_list, ss_token, total_tokens, sample_token, parents_list, top_k, logits_processor):
             scores_list = torch.cat(scores_list, dim=0).view(-1)
             ss_token_list = torch.cat(ss_token, dim=0).view(-1)
             top_scores = torch.topk(scores_list, total_tokens, dim=-1)
@@ -1142,7 +1142,7 @@ class Model(nn.Module):
         parents_list = []
         ss_token = []
         ss_token0 = [] 
-        hidden_list = []  
+        # hidden_list = []  
         scores_dict = {}
         idx = 1
 
@@ -1173,7 +1173,7 @@ class Model(nn.Module):
         scores0 = topk_p0[0]
 
         scores_dict[f"eagle_{idx}_forward"] = scores
-        hidden_list.append(last_hidden)  
+        # hidden_list.append(last_hidden)  
         idx += 1
 
         scores_list.append(scores[None])
@@ -1214,7 +1214,7 @@ class Model(nn.Module):
             scores = topk_cs_p
 
             scores_dict[f"eagle_{idx}_forward"] = scores
-            hidden_list.append(out_hidden[0])  
+            # hidden_list.append(out_hidden[0])  
             idx += 1
 
             out_ids = topk_cs_index // top_k
@@ -1239,7 +1239,7 @@ class Model(nn.Module):
 
         for index in range(2, depth+2):
             draft_tokens, retrieve_indices, tree_mask, tree_position_ids = make_rb(
-                scores_list[:index], ss_token[:index], hidden_list[:index], total_tokens, sample_token, parents_list[:index], top_k, logits_processor
+                scores_list[:index], ss_token[:index], total_tokens, sample_token, parents_list[:index], top_k, logits_processor
             )
             draft_tokens_list.append(draft_tokens)
             retrieve_indices_list.append(retrieve_indices)
@@ -1252,16 +1252,6 @@ class Model(nn.Module):
 
         del draft_tokens_list, tree_mask_list, tree_position_ids_list
         del parents_list, scores_list, ss_token
-
-        import base64
-        import io
-        import numpy as np
-        for i, hidden in enumerate(hidden_list):
-            hidden_np = hidden.cpu().numpy().astype(np.float16)
-            buffer = io.BytesIO()
-            np.save(buffer, hidden_np)
-            buffer.seek(0)
-            scores_dict[f"eagle_{i+1}_hidden"] = base64.b64encode(buffer.read()).decode('utf-8')
 
         return draft_tokens, retrieve_indices_list, tree_mask, tree_position_ids, scores_dict
 
@@ -1406,15 +1396,12 @@ class Model(nn.Module):
         # 4
         import random
         for i in range(depth):
-            if hasattr(eye, 'reduce_layer'):
-                eye_input = last_hidden[None, :]
-            else:
-                eye_input = scores[None]
+            eye_input = scores[None]
                 
             eye_logits, hidden = eye(eye_input, hidden)
             eye_probs = torch.softmax(eye_logits, dim=-1)
             r = random.random()
-            if r < eye_probs[0,0,0] if hasattr(eye, 'reduce_layer') else eye_probs[0,0]:
+            if r < eye_probs[0,0]:
                 break
             idx += 1
             self.tree_mask = tree_mask

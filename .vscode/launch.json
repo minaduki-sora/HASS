@@ -1,0 +1,52 @@
+{
+    // 使用 IntelliSense 了解相关属性。 
+    // 悬停以查看现有属性的描述。
+    // 欲了解更多信息，请访问: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+
+        {
+            "name": "ge_data_llama3_rb",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "-m",
+            "args": [
+                "ge_data.ge_data_llama3_rb",
+                "--ea-model-path", "/root/autodl-tmp/weights/eagle/HASS-LLaMA3-Instruct-8B",
+                "--base-model-path", "/root/autodl-tmp/weights/hf/Meta-Llama-3-8B-Instruct",
+                "--bench-name", "shareGPT",
+                "--num-gpus-total", "1",
+                "--num-gpus-per-model", "1",
+                "--depth", "7",
+                "--top-k", "10",
+                "--temperature", "1.0",
+                "--answer-file", "output/shareGPT/hass/llama3-d7-rb.jsonl",
+                "--save-dataset", "data/scores_rb/shareGPT-hass-llama3-d7-topk10-t1/",
+                "--question-begin", "0",
+                "--question-end", "1000"
+            ],
+            "console": "integratedTerminal",
+            "justMyCode": false
+        },
+        {
+            "name": "gen_ea_answer_llama3chat",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "-m",
+            "args": [
+                "evaluation.gen_ea_answer_llama3chat",
+                "--ea-model-path", "/root/autodl-tmp/weights/eagle/HASS-LLaMA3-Instruct-8B",
+                "--base-model-path", "/root/autodl-tmp/weights/hf/Meta-Llama-3-8B-Instruct",
+                "--bench-name", "mt_bench",
+                "--num-gpus-total", "1",
+                "--num-gpus-per-model", "1",
+                "--depth", "7",
+                "--top-k", "10",
+                "--temperature", "1.0",
+                "--answer-file", "output/mt_bench/hass/llama3-debug.jsonl"
+            ],
+            "console": "integratedTerminal",
+            "justMyCode": false
+        }
+    ]
+}

@@ -484,12 +484,7 @@ def initialize_tree_log(input_ids, model, past_key_values, logits_processor, eye
         token = token[None, None]
     input_ids = torch.cat((input_ids, token.to(input_ids.device)), dim=1)
 
-    # Clone the output hidden states
-    if getattr(model, "use_eagle3", False):
-        ea_device = model.ea_layer.lm_head.weight.device
-        if outputs["hidden_states"][0].device != ea_device:
-            outputs["hidden_states"] = [x.to(ea_device) for x in outputs["hidden_states"]]
-        hidden_states=torch.cat(outputs["hidden_states"],dim=-1)
+    # hidden_states=torch.cat(outputs["hidden_states"],dim=-1)
     draft_tokens, retrieve_indices,tree_mask,tree_position_ids,time_dict = model.ea_layer.topK_genrate_log(hidden_states, input_ids, model.base_model.lm_head,logits_processor, eye=eye)
     return draft_tokens, retrieve_indices,tree_mask,tree_position_ids, orig, time_dict
 
@@ -510,11 +505,11 @@ def initialize_tree_rb(input_ids, model, past_key_values, logits_processor):
     input_ids = torch.cat((input_ids, token.to(input_ids.device)), dim=1)
 
     # Clone the output hidden states
-    if getattr(model, "use_eagle3", False):
-        ea_device = model.ea_layer.lm_head.weight.device
-        if outputs["hidden_states"][0].device != ea_device:
-            outputs["hidden_states"] = [x.to(ea_device) for x in outputs["hidden_states"]]
-        hidden_states=torch.cat(outputs["hidden_states"],dim=-1)
+    # if getattr(model, "use_eagle3", False):
+    #     ea_device = model.ea_layer.lm_head.weight.device
+    #     if outputs["hidden_states"][0].device != ea_device:
+    #         outputs["hidden_states"] = [x.to(ea_device) for x in outputs["hidden_states"]]
+    # hidden_states=torch.cat(outputs["hidden_states"],dim=-1)
     draft_tokens, retrieve_indices,tree_mask,tree_position_ids,scores_dict = model.ea_layer.topK_genrate_rb(hidden_states, input_ids, model.base_model.lm_head,logits_processor)
     return draft_tokens, retrieve_indices,tree_mask,tree_position_ids, orig, scores_dict
 
@@ -534,12 +529,12 @@ def initialize_tree_with_eye(input_ids, model, past_key_values, logits_processor
         token = token[None, None]
     input_ids = torch.cat((input_ids, token.to(input_ids.device)), dim=1)
 
-    # Clone the output hidden states
-    if getattr(model, "use_eagle3", False):
-        ea_device = model.ea_layer.lm_head.weight.device
-        if outputs["hidden_states"][0].device != ea_device:
-            outputs["hidden_states"] = [x.to(ea_device) for x in outputs["hidden_states"]]
-        hidden_states=torch.cat(outputs["hidden_states"],dim=-1)
+    # # Clone the output hidden states
+    # if getattr(model, "use_eagle3", False):
+    #     ea_device = model.ea_layer.lm_head.weight.device
+    #     if outputs["hidden_states"][0].device != ea_device:
+    #         outputs["hidden_states"] = [x.to(ea_device) for x in outputs["hidden_states"]]
+    # hidden_states=torch.cat(outputs["hidden_states"],dim=-1)
     draft_tokens, retrieve_indices,tree_mask,tree_position_ids, i = model.ea_layer.topK_genrate_with_eye(hidden_states, input_ids, model.base_model.lm_head, model.eye,logits_processor)
     return draft_tokens, retrieve_indices,tree_mask,tree_position_ids, orig, i
 
@@ -561,11 +556,7 @@ def tree_decoding_rb(
         position_ids=position_ids,
     )
 
-    if getattr(model, "use_eagle3", False):
-        ea_device = model.ea_layer.lm_head.weight.device
-        if outputs["hidden_states"][0].device != ea_device:
-            outputs["hidden_states"] = [x.to(ea_device) for x in outputs["hidden_states"]]
-        hidden_state = torch.cat(outputs["hidden_states"], dim=-1)[-1:,...] #select the last batch
+    hidden_state = hidden_state[-1:,...] #select the last batch
 
     bsz = tree_candidates.shape[0]
     logits_list = [tree_logits[i, retrieve_indices[i]] for i in range(bsz)]
