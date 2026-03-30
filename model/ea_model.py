@@ -891,6 +891,7 @@ class EaModel(nn.Module):
                 input_ids, self, past_key_values, logits_processor
             )
             new_token = 0
+            accept_length_list = []
             max_length = max_length - self.ea_layer.total_tokens - 10
             for idx in range(max_length):
                 # with Timer("all"):
@@ -914,6 +915,10 @@ class EaModel(nn.Module):
                 )
 
                 action_length.append(i)
+                try:
+                    accept_length_list.append(accept_length.item())
+                except:
+                    accept_length_list.append(accept_length)
                 input_ids, draft_tokens, retrieve_indices, tree_mask, tree_position_ids, new_token, i = update_inference_inputs_with_eye(
                     input_ids,
                     candidates,
@@ -942,4 +947,4 @@ class EaModel(nn.Module):
             if not log:
                 return input_ids
             else:
-                return input_ids, new_token, idx, action_length
+                return input_ids, new_token, idx, action_length, accept_length_list
