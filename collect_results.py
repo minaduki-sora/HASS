@@ -33,17 +33,17 @@ for dataset in datasets:
                 times = sum(ch.get('wall_time', []))
                 if times > 0:
                     speeds.append(tokens / times)
-                if method != 'baseline':
-                    if method == 'hass':
-                        accl = ch['accept_length'] 
-                    else:
-                        accl = ch['accept_lengths']
-                    if isinstance(accl, list):
-                        for item in accl:
-                            if isinstance(item, list):
-                                all_acc_lengths.extend(item)
-                            elif isinstance(item, (int, float)):
-                                all_acc_lengths.append(item)
+                # if method != 'baseline':
+                #     if method == 'hass':
+                #         accl = ch['accept_length'] 
+                #     else:
+                #         accl = ch['accept_lengths']
+                #     if isinstance(accl, list):
+                #         for item in accl:
+                #             if isinstance(item, list):
+                #                 all_acc_lengths.extend(item)
+                #             elif isinstance(item, (int, float)):
+                #                 all_acc_lengths.append(item)
                 
                 # Extract action_lengths
                 if method == 'radar' and 'action_lengths' in ch:
@@ -58,15 +58,15 @@ for dataset in datasets:
         avg_speed = np.mean(speeds) if speeds else None
         std_speed = np.std(speeds) if speeds else None
         avg_action_length = np.mean(all_action_lengths) if all_action_lengths else None
-        avg_acc_length = np.mean(all_acc_lengths) if all_acc_lengths else None
+        # avg_acc_length = np.mean(all_acc_lengths) if all_acc_lengths else None
         
         results.append({
             'Dataset': dataset,
             'Method': method,
             'Avg_Speed (tokens/s)': avg_speed,
             'Speed_Std': std_speed,
-            'Avg_Action_Length': avg_action_length if method == 'radar' else None,
-            'Avg_Accept_Length': avg_acc_length if method != 'baseline' else None
+            'Avg_Action_Length': avg_action_length if method == 'radar' else None
+            # 'Avg_Accept_Length': avg_acc_length if method != 'baseline' else None
         })
 
 df = pd.DataFrame(results)

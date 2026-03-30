@@ -162,7 +162,7 @@ def get_model_answers(
             torch.cuda.synchronize()
             start_time = time.time()
 
-            output_ids, new_token, idx, _, _ = model.eagenerate_with_eye(
+            output_ids, new_token, idx, _ = model.eagenerate_with_eye(
                 torch.as_tensor(input_ids).cuda(),
                 temperature=temperature,
                 log=True,
@@ -246,7 +246,7 @@ def get_model_answers(
                 torch.cuda.synchronize()
                 start_time = time.time()
 
-                output_ids, new_token, idx, action_length, accept_length_list = model.eagenerate_with_eye(
+                output_ids, new_token, idx, action_length = model.eagenerate_with_eye(
                     torch.as_tensor(input_ids).cuda(),
                     temperature=temperature,
                     log=True,
@@ -290,13 +290,13 @@ def get_model_answers(
                 new_tokens.append(int(new_token))
                 wall_time.append(total_time)
                 action_lengths.append(action_length)
-                accept_lengths.append(accept_length_list)
+                # accept_lengths.append(accept_length_list)
                 messages.append({
                     "role": "assistant",
                     "content": output
                 })
             # torch.cuda.empty_cache()
-            choices.append({"index": i, "turns": turns, "idxs": idxs, "new_tokens": new_tokens, "wall_time": wall_time, "action_lengths": action_lengths, "accept_lengths": accept_lengths})
+            choices.append({"index": i, "turns": turns, "idxs": idxs, "new_tokens": new_tokens, "wall_time": wall_time, "action_lengths": action_lengths})
 
         # Dump answers
         os.makedirs(os.path.dirname(answer_file), exist_ok=True)
