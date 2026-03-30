@@ -162,7 +162,7 @@ def get_model_answers(
             torch.cuda.synchronize()
             start_time = time.time()
 
-            output_ids, new_token, idx, _ = model.eagenerate_with_eye(
+            output_ids, new_token, idx, _, _ = model.eagenerate_with_eye(
                 torch.as_tensor(input_ids).cuda(),
                 temperature=temperature,
                 log=True,
@@ -419,10 +419,7 @@ if __name__ == "__main__":
         default="mc_sim_7b_63",
     )
 
-    parser.add_argument(
-        "--answer-file",
-        type=str
-    )
+
 
     args = parser.parse_args()
 
